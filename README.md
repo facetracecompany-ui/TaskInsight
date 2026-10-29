@@ -1,8 +1,14 @@
 ﻿# TaskInsight
 
-Программа TaskInsight для Windows.
+Программа TaskInsight для Windows (Go, веб-интерфейс, иконка в трее).
 
 ## Скачать
 
-Последняя версия — на странице [Releases](../../releases/latest). Скачайте TaskInsight.exe и запустите.
+Готовый `TaskInsight.exe` — на странице [Releases](../../releases/latest).
+
+## Сборка из исходников
+
+```powershell
+go build -ldflags "-H=windowsgui" -o TaskInsight.exe .
+```
 

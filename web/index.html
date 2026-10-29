@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TaskInsight</title>
+<style>
+:root {
+  --bg: #0e0f13; --panel: #16181e; --panel2: #1c1f27; --line: #272a34;
+  --text: #e8eaf0; --muted: #8b90a0; --faint: #5d6272;
+  --cpu: #4f8cff; --ram: #a678ff; --gpu: #3ddc97; --disk: #ffb454; --net: #ff6b8b;
+  --bad: #ff5c5c; --warn: #ffb454; --ok: #3ddc97;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 13px/1.4 "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+button { font: inherit; color: inherit; cursor: pointer; }
+.app { display: flex; flex-direction: column; height: 100%; }
+header { display: flex; align-items: center; gap: 18px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+header h1 { font-size: 15px; margin: 0; letter-spacing: .3px; }
+header h1 b { color: var(--cpu); }
+header .meta { color: var(--muted); display: flex; gap: 16px; flex: 1; }
+header .meta span b { color: var(--text); font-weight: 600; }
+.btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; }
+.btn:hover { border-color: #3a3f4f; }
+.btn.danger { color: #ffb0b0; }
+.btn.danger:hover { background: rgba(255, 92, 92, .15); border-color: var(--bad); }
+.scroll { flex: 1; overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.kpi .top { display: flex; justify-content: space-between; align-items: baseline; }
+.kpi .name { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+.kpi .val { font-size: 26px; font-weight: 600; }
+.kpi canvas { width: 100%; height: 46px; display: block; margin: 6px 0; }
+.kpi .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi .cul { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi .cul i { font-style: normal; color: var(--muted); }
+.kpi .cul b { cursor: pointer; }
+.kpi .cul b:hover { text-decoration: underline; }
+
+.cores { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.cores summary { cursor: pointer; color: var(--muted); }
+.coregrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px 12px; margin-top: 10px; }
+.core { font-size: 11px; color: var(--muted); }
+.core .bar { height: 6px; border-radius: 3px; background: var(--panel2); margin-top: 3px; overflow: hidden; }
+.core .bar i { display: block; height: 100%; background: var(--cpu); transition: width .4s; }
+
+.disks { display: flex; gap: 12px; flex-wrap: wrap; }
+.disk { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; min-width: 150px; }
+.disk .bar { height: 5px; border-radius: 3px; background: var(--panel2); margin-top: 5px; overflow: hidden; }
+.disk .bar i { display: block; height: 100%; background: var(--disk); }
+
+.tablebox { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-height: 340px; flex: 1; }
+.tools { display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.tools input[type=search] { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 6px 10px; width: 260px; outline: none; }
+.tools input[type=search]:focus { border-color: var(--cpu); }
+.tools label { color: var(--muted); display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.tools .sp { flex: 1; }
+.twrap { overflow: auto; flex: 1; }
+table { width: 100%; border-collapse: collapse; }
+th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 500; color: var(--muted);
+  padding: 8px 10px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; white-space: nowrap; z-index: 1; }
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+th.on { color: var(--text); }
+td { padding: 5px 10px; border-bottom: 1px solid #1d2028; white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+tr.row { cursor: pointer; }
+tr.row:hover td { background: #1a1d25; }
+tr.row.sel td { background: #1f2740; }
+td.name { font-weight: 500; }
+td.dim { color: var(--muted); }
+.heat { border-radius: 4px; padding: 1px 6px; }
+
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 520px; max-width: 100%; background: var(--panel);
+  border-left: 1px solid var(--line); box-shadow: -12px 0 40px rgba(0,0,0,.45); transform: translateX(105%);
+  transition: transform .22s; display: flex; flex-direction: column; z-index: 10; }
+.drawer.open { transform: none; }
+.drawer .dh { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: flex-start; }
+.drawer .dh h2 { margin: 0; font-size: 16px; }
+.drawer .dh small { color: var(--muted); }
+.drawer .dh .x { margin-left: auto; }
+.drawer .db { overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat { background: var(--panel2); border-radius: 8px; padding: 8px 10px; }
+.stat small { color: var(--muted); display: block; font-size: 11px; }
+.stat b { font-size: 15px; }
+.sec h3 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; font-weight: 500; }
+.kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; }
+.kv div:nth-child(odd) { color: var(--muted); }
+.kv div { word-break: break-all; user-select: text; }
+.mono { font-family: Consolas, monospace; font-size: 12px; user-select: text; }
+.list { background: var(--panel2); border-radius: 8px; padding: 6px 10px; max-height: 170px; overflow: auto; }
+.list div { padding: 1px 0; word-break: break-all; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: #2a2e3a; border: 1px solid var(--line);
+  padding: 8px 16px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
+.toast.show { opacity: 1; }
+[hidden] { display: none !important; }
+.tabs { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.tab { background: none; border: 0; border-radius: 8px; padding: 5px 14px; color: var(--muted); }
+.tab.on { background: var(--panel2); color: var(--text); }
+.logbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.logbar .sp { flex: 1; }
+.seg { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button { background: none; border: 0; border-radius: 7px; padding: 4px 11px; color: var(--muted); }
+.seg button.on { background: var(--panel2); color: var(--text); }
+.chartbox { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+#logChart { width: 100%; height: 230px; display: block; }
+.tip { position: absolute; pointer-events: none; background: #252936; border: 1px solid #3a3f4f; border-radius: 8px;
+  padding: 7px 10px; font-size: 12px; min-width: 190px; display: none; z-index: 2; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+.tip b { display: block; margin-bottom: 3px; }
+.tip i { font-style: normal; color: var(--muted); display: block; }
+.logcols { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 14px; align-items: start; min-height: 320px; }
+.spikes { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.spikes h3 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; font-weight: 500; }
+.spike { padding: 6px 0; border-bottom: 1px solid #1d2028; cursor: default; }
+.spike:last-child { border: 0; }
+.spike b { font-variant-numeric: tabular-nums; }
+.spike small { display: block; color: var(--muted); }
+tr.detail td { white-space: normal; max-width: none; background: #14161c; color: var(--muted); }
+tr.detail .mono { color: var(--text); display: block; margin: 2px 0 6px; word-break: break-all; }
+@media (max-width: 1100px) { .logcols { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Task<b>Insight</b></h1>
+    <nav class="tabs">
+      <button class="tab on" data-view="live">Мониторинг</button>
+      <button class="tab" data-view="log">Журнал нагрузки</button>
+      <button class="tab" data-view="disks">Диски</button>
+    </nav>
+    <div class="meta">
+      <span id="mHost"></span><span>Аптайм <b id="mUp"></b></span>
+      <span>Процессов <b id="mProc"></b></span><span>Потоков <b id="mThr"></b></span>
+    </div>
+    <button class="btn" id="pause">Пауза</button>
+  </header>
+  <div class="scroll" id="disksView" hidden>
+    <div class="logbar">
+      <div class="seg" id="driveSel"></div>
+      <span class="sp"></span>
+      <span id="dInfo" style="color:var(--muted)"></span>
+      <button class="btn" id="dRefresh">Обновить</button>
+    </div>
+    <div class="tablebox" style="min-height:300px">
+      <div class="tools">
+        <input type="search" id="dq" placeholder="Поиск: процесс или файл…">
+        <label><input type="checkbox" id="dOnlyFiles"> Только с открытыми файлами</label>
+        <span class="sp"></span><span id="dShown" style="color:var(--muted)"></span>
+      </div>
+      <div class="twrap"><table><thead><tr>
+        <th style="cursor:default">Процесс</th><th class="num" style="cursor:default">PID</th>
+        <th class="num" style="cursor:default">Файлов</th><th style="cursor:default">Запущен с диска</th><th style="cursor:default">Пользователь</th>
+      </tr></thead><tbody id="dBodyTbl"></tbody></table></div>
+    </div>
+  </div>
+  <div class="scroll" id="logView" hidden>
+    <div class="logbar">
+      <div class="seg" id="range">
+        <button data-min="15">15 мин</button><button data-min="60" class="on">1 час</button><button data-min="360">6 часов</button>
+        <button data-min="1440">24 часа</button><button data-min="10080">7 дней</button><button data-min="20160">Всё</button>
+      </div>
+      <div class="seg" id="metric">
+        <button data-m="cpu" class="on">ЦП</button><button data-m="mem">Память</button><button data-m="gpu">GPU</button>
+        <button data-m="disk">Диск</button><button data-m="net">Сеть</button>
+      </div>
+      <span class="sp"></span>
+      <span id="logInfo" style="color:var(--muted)"></span>
+      <button class="btn" id="logRefresh">Обновить</button>
+      <button class="btn" id="logCsv">Экспорт CSV</button>
+      <button class="btn" id="logFolder">Папка логов</button>
+    </div>
+    <div class="chartbox">
+      <canvas id="logChart"></canvas>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="logcols">
+      <div class="spikes"><h3>Пики нагрузки <span id="spikeMetric"></span></h3><div id="spikes"></div></div>
+      <div class="tablebox" style="min-height:300px">
+        <div class="tools">
+          <input type="search" id="lq" placeholder="Поиск: имя, путь, команда…">
+          <span class="sp"></span><span id="lshown" style="color:var(--muted)"></span>
+        </div>
+        <div class="twrap"><table><thead><tr id="lhead"></tr></thead><tbody id="lbody"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+  <div class="scroll" id="liveView">
+    <div class="kpis" id="kpis"></div>
+    <details class="cores"><summary>Ядра процессора</summary><div class="coregrid" id="cores"></div></details>
+    <div class="disks" id="disks"></div>
+    <div class="tablebox">
+      <div class="tools">
+        <input type="search" id="q" placeholder="Поиск: имя, PID, пользователь…">
+        <label><input type="checkbox" id="group"> Группировать по имени</label>
+        <label><input type="checkbox" id="hideIdle" checked> Скрыть простаивающие</label>
+        <span class="sp"></span><span id="shown" style="color:var(--muted)"></span>
+      </div>
+      <div class="twrap">
+        <table>
+          <thead><tr id="head"></tr></thead>
+          <tbody id="body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<aside class="drawer" id="drawer">
+  <div class="dh">
+    <div><h2 id="dName"></h2><small id="dSub"></small></div>
+    <button class="btn x" id="dClose">✕</button>
+  </div>
+  <div class="db" id="dBody"></div>
+</aside>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const fmtB = (n) => {
+  if (!n) return '0 Б';
+  const u = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ']; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i];
+};
+const fmtRate = (n) => (n < 1 ? '0' : fmtB(n) + '/с');
+const fmtUp = (s) => { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return (d ? d + 'д ' : '') + h + 'ч ' + m + 'м'; };
+const pct = (v) => (v < 0.05 ? '0' : v < 10 ? v.toFixed(1) : v.toFixed(0)) + '%';
+
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+async function api(path, opt = {}) {
+  const r = await fetch(path, { ...opt, headers: { 'X-Token': TOKEN } });
+  return r.json();
+}
+
+// ---------------------------------------------------------------- KPI cards
+const HIST = 80;
+const METRICS = [
+  { id: 'cpu', name: 'Процессор', color: '--cpu', val: (s) => s.cpu, max: 100, proc: (p) => p.cpu, fmt: (v) => pct(v) },
+  { id: 'ram', name: 'Память', color: '--ram', val: (s) => s.memUsed / s.memTotal * 100, max: 100, proc: (p) => p.rss, fmt: (v) => fmtB(v) },
+  { id: 'gpu', name: 'Видеокарта', color: '--gpu', val: (s) => s.gpu ? s.gpu.util : 0, max: 100, proc: (p) => p.gpu, fmt: (v) => pct(v) },
+  { id: 'disk', name: 'Диск', color: '--disk', val: (s) => s.diskR + s.diskW, auto: true, proc: (p) => p.rbps + p.wbps, fmt: (v) => fmtRate(v) },
+  { id: 'net', name: 'Сеть', color: '--net', val: (s) => s.netUp + s.netDown, auto: true, proc: (p) => p.conns, fmt: (v) => v + ' подкл.' },
+];
+const hist = Object.fromEntries(METRICS.map((m) => [m.id, []]));
+$('#kpis').innerHTML = METRICS.map((m) => `
+  <div class="kpi" id="k-${m.id}">
+    <div class="top"><span class="name">${m.name}</span><span class="val"></span></div>
+    <canvas></canvas><div class="sub"></div><div class="cul"></div>
+  </div>`).join('');
+
+function spark(cv, data, color, max) {
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  const top = max || Math.max(1, ...data) * 1.15;
+  const pts = data.map((v, i) => [i / (HIST - 1) * w + (w - (data.length - 1) / (HIST - 1) * w), h - 2 - (v / top) * (h - 4)]);
+  if (pts.length < 2) return;
+  const col = getComputedStyle(document.documentElement).getPropertyValue(color).trim();
+  c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+  c.strokeStyle = col; c.lineWidth = 1.6; c.stroke();
+  c.lineTo(pts.at(-1)[0], h); c.lineTo(pts[0][0], h); c.closePath();
+  c.globalAlpha = .16; c.fillStyle = col; c.fill(); c.globalAlpha = 1;
+}
+
+function culprit(m, procs) {
+  let best = null, bv = 0;
+  for (const p of procs) {
+    if (p.pid === 0) continue;
+    const v = m.proc(p);
+    if (v > bv) { bv = v; best = p; }
+  }
+  const min = { cpu: 0.5, ram: 1, gpu: 0.5, disk: 1024, net: 1 }[m.id];
+  return best && bv >= min ? [best, bv] : null;
+}
+
+function renderKpis(s) {
+  for (const m of METRICS) {
+    const el = $('#k-' + m.id), v = m.val(s);
+    const h = hist[m.id]; h.push(v); if (h.length > HIST) h.shift();
+    $('.val', el).textContent = m.id === 'disk' || m.id === 'net' ? fmtRate(v) : pct(v);
+    spark($('canvas', el), h, m.color, m.max);
+    let sub = '';
+    if (m.id === 'cpu') sub = `${s.cores} логич. ядер`;
+    if (m.id === 'ram') sub = `${fmtB(s.memUsed)} из ${fmtB(s.memTotal)} · подкачка ${fmtB(s.swapUsed)}`;
+    if (m.id === 'gpu') sub = s.gpu ? `${s.gpu.name} · ${fmtB(s.gpu.memUsed * 1048576)}/${fmtB(s.gpu.memTotal * 1048576)} · ${s.gpu.temp}°C · ${s.gpu.power.toFixed(0)} Вт` : 'GPU не найден';
+    if (m.id === 'disk') sub = `чтение ${fmtRate(s.diskR)} · запись ${fmtRate(s.diskW)}`;
+    if (m.id === 'net') sub = `↓ ${fmtRate(s.netDown)} · ↑ ${fmtRate(s.netUp)}`;
+    $('.sub', el).textContent = sub;
+    const c = culprit(m, s.procs);
+    $('.cul', el).innerHTML = c ? `<i>Больше всего:</i> <b data-pid="${c[0].pid}">${esc(c[0].name)}</b> <i>${esc(m.fmt(c[1]))}</i>` : '<i>Нагрузки от процессов нет</i>';
+  }
+  $('#cores').innerHTML = (s.perCore || []).map((v, i) =>
+    `<div class="core">Ядро ${i} · ${v.toFixed(0)}%<div class="bar"><i style="width:${v}%"></i></div></div>`).join('');
+  $('#disks').innerHTML = (s.disks || []).map((d) =>
+    `<div class="disk"><b>${esc(d.mount)}</b> <span style="color:var(--muted)">${fmtB(d.used)} / ${fmtB(d.total)}</span><div class="bar"><i style="width:${d.pct}%"></i></div></div>`).join('');
+  $('#mHost').textContent = s.host;
+  $('#mUp').textContent = fmtUp(s.uptime);
+  $('#mProc').textContent = s.procs.length;
+  $('#mThr').textContent = s.threads;
+}
+
+// ---------------------------------------------------------------- table
+const COLS = [
+  { k: 'name', t: 'Имя', get: (p) => p.name.toLowerCase(), cell: (p) => esc(p.name) + (p.n > 1 ? ` <span style="color:var(--muted)">×${p.n}</span>` : ''), cls: 'name' },
+  { k: 'pid', t: 'PID', get: (p) => p.pid, cell: (p) => (p.n > 1 ? '' : p.pid), num: 1, cls: 'dim' },
+  { k: 'cpu', t: 'ЦП', get: (p) => p.cpu, cell: (p) => heat(p.cpu, 100, '--cpu', pct(p.cpu)), num: 1 },
+  { k: 'rss', t: 'Память', get: (p) => p.rss, cell: (p) => heat(p.rss, 2e9, '--ram', fmtB(p.rss)), num: 1 },
+  { k: 'gpu', t: 'GPU', get: (p) => p.gpu, cell: (p) => heat(p.gpu, 100, '--gpu', p.gpu ? pct(p.gpu) : '—'), num: 1 },
+  { k: 'rbps', t: 'Чтение', get: (p) => p.rbps, cell: (p) => heat(p.rbps, 5e7, '--disk', p.rbps >= 1 ? fmtRate(p.rbps) : '—'), num: 1 },
+  { k: 'wbps', t: 'Запись', get: (p) => p.wbps, cell: (p) => heat(p.wbps, 5e7, '--disk', p.wbps >= 1 ? fmtRate(p.wbps) : '—'), num: 1 },
+  { k: 'conns', t: 'Сеть (подкл.)', get: (p) => p.conns, cell: (p) => heat(p.conns, 50, '--net', p.conns || '—'), num: 1 },
+  { k: 'thr', t: 'Потоки', get: (p) => p.thr, cell: (p) => p.thr, num: 1, cls: 'dim' },
+  { k: 'user', t: 'Пользователь', get: (p) => (p.user || '').toLowerCase(), cell: (p) => esc((p.user || '').split('\\').pop()), cls: 'dim' },
+];
+let sortKey = 'cpu', sortDir = -1, selected = null, last = null, paused = false;
+
+function heat(v, max, color, text) {
+  const a = Math.min(1, Math.sqrt(v / max)) * 0.5;
+  if (a < .02) return `<span class="heat" style="color:var(--muted)">${text}</span>`;
+  return `<span class="heat" style="background:color-mix(in srgb, var(${color}) ${(a * 100).toFixed(0)}%, transparent)">${text}</span>`;
+}
+
+$('#head').innerHTML = COLS.map((c) => `<th data-k="${c.k}" class="${c.num ? 'num' : ''}">${c.t}<span class="arr"></span></th>`).join('');
+$('#head').addEventListener('click', (e) => {
+  const th = e.target.closest('th'); if (!th) return;
+  const k = th.dataset.k;
+  sortDir = sortKey === k ? -sortDir : (k === 'name' || k === 'user' ? 1 : -1);
+  sortKey = k; if (last) renderTable(last);
+});
+
+function groupProcs(list) {
+  const m = new Map();
+  for (const p of list) {
+    const key = p.name.toLowerCase();
+    const g = m.get(key);
+    if (!g) { m.set(key, { ...p, n: 1, pids: [p.pid] }); continue; }
+    g.n++; g.pids.push(p.pid);
+    g.cpu += p.cpu; g.rss += p.rss; g.gpu += p.gpu; g.rbps += p.rbps; g.wbps += p.wbps; g.conns += p.conns; g.thr += p.thr;
+  }
+  return [...m.values()];
+}
+
+function renderTable(s) {
+  const q = $('#q').value.trim().toLowerCase();
+  let list = s.procs.map((p) => ({ ...p, n: 1 }));
+  if ($('#group').checked) list = groupProcs(list);
+  if (q) list = list.filter((p) => p.name.toLowerCase().includes(q) || String(p.pid) === q || (p.user || '').toLowerCase().includes(q));
+  else if ($('#hideIdle').checked) list = list.filter((p) => p.cpu >= 0.05 || p.gpu > 0 || p.rbps + p.wbps >= 1024 || p.rss > 150e6 || p.conns > 0 || p.pid === selected);
+  const col = COLS.find((c) => c.k === sortKey);
+  list.sort((a, b) => (col.get(a) > col.get(b) ? 1 : col.get(a) < col.get(b) ? -1 : 0) * sortDir);
+  $('#shown').textContent = `Показано ${list.length} из ${s.procs.length}`;
+  document.querySelectorAll('#head th').forEach((th) => {
+    th.classList.toggle('on', th.dataset.k === sortKey);
+    $('.arr', th).textContent = th.dataset.k === sortKey ? (sortDir < 0 ? ' ▼' : ' ▲') : '';
+  });
+  $('#body').innerHTML = list.slice(0, 400).map((p) => `
+    <tr class="row ${p.pid === selected ? 'sel' : ''}" data-pid="${p.pid}">
+      ${COLS.map((c) => `<td class="${c.cls || ''} ${c.num ? 'num' : ''}">${c.cell(p)}</td>`).join('')}
+    </tr>`).join('');
+}
+
+$('#body').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr.row'); if (tr) openDrawer(+tr.dataset.pid);
+});
+$('#kpis').addEventListener('click', (e) => {
+  const b = e.target.closest('b[data-pid]'); if (b) openDrawer(+b.dataset.pid);
+});
+['q', 'group', 'hideIdle'].forEach((id) => $('#' + id).addEventListener('input', () => last && renderTable(last)));
+$('#pause').addEventListener('click', () => {
+  paused = !paused; $('#pause').textContent = paused ? 'Продолжить' : 'Пауза';
+});
+
+// ---------------------------------------------------------------- details drawer
+async function openDrawer(pid) {
+  selected = pid;
+  if (last) renderTable(last);
+  $('#drawer').classList.add('open');
+  const p = last?.procs.find((x) => x.pid === pid);
+  $('#dName').textContent = p ? p.name : 'PID ' + pid;
+  $('#dSub').textContent = 'PID ' + pid;
+  $('#dBody').innerHTML = '<div style="color:var(--muted)">Загрузка…</div>';
+  const d = await api('/api/proc?pid=' + pid);
+  if (selected !== pid) return;
+  drawDrawer(pid, d);
+}
+
+function drawDrawer(pid, d) {
+  const p = last?.procs.find((x) => x.pid === pid);
+  if (d.error && !p) { $('#dBody').innerHTML = `<div>${esc(d.error)}</div>`; return; }
+  const kids = d.children || [], conns = d.conns || [], files = d.files || [];
+  $('#dBody').innerHTML = `
+    ${p ? `<div class="stats" id="dStats">${statsHtml(p)}</div>` : ''}
+    <div class="actions">
+      <button class="btn danger" data-act="kill">Завершить</button>
+      <button class="btn danger" data-act="tree">Завершить дерево</button>
+      <button class="btn" data-act="suspend">Приостановить</button>
+      <button class="btn" data-act="resume">Возобновить</button>
+      <button class="btn" id="copyExe">Копировать путь</button>
+    </div>
+    <div class="sec"><h3>О процессе</h3><div class="kv">
+      <div>Файл</div><div class="mono">${esc(d.exe || '—')}</div>
+      <div>Команда</div><div class="mono">${esc(d.cmdline || '—')}</div>
+      <div>Рабочая папка</div><div class="mono">${esc(d.cwd || '—')}</div>
+      <div>Родитель</div><div>${esc(d.parent || '—')} ${p ? `(PID ${p.ppid})` : ''}</div>
+      <div>Пользователь</div><div>${esc(p?.user || '—')}</div>
+      <div>Запущен</div><div>${p?.started ? new Date(p.started).toLocaleString('ru-RU') : '—'}</div>
+      <div>Состояние</div><div>${esc((d.status || []).join(', ') || '—')}</div>
+    </div></div>
+    <div class="sec"><h3>Дочерние процессы (${kids.length})</h3><div class="list">${kids.map((k) => `<div>${esc(k)}</div>`).join('') || '<div style="color:var(--muted)">нет</div>'}</div></div>
+    <div class="sec"><h3>Сетевые подключения (${conns.length})</h3><div class="list mono">${conns.map((c) =>
+      `<div>${c.proto} ${esc(c.local)} ${c.remote ? '→ ' + esc(c.remote) : ''} <span style="color:var(--muted)">${esc(c.status)}</span></div>`).join('') || '<div style="color:var(--muted)">нет</div>'}</div></div>
+    <div class="sec"><h3>Открытые файлы (${files.length})</h3><div class="list mono">${files.map((f) => `<div>${esc(f)}</div>`).join('') || '<div style="color:var(--muted)">нет или нет доступа</div>'}</div></div>`;
+  $('#copyExe').addEventListener('click', () => { navigator.clipboard.writeText(d.exe || ''); toast('Путь скопирован'); });
+  document.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => act(b.dataset.act, pid, p?.name)));
+}
+
+const statsHtml = (p) => [
+  ['ЦП', pct(p.cpu)], ['Память', fmtB(p.rss)], ['Выделено', fmtB(p.vms)],
+  ['GPU', p.gpu ? pct(p.gpu) : '—'], ['GPU-память', p.gpumem ? fmtB(p.gpumem) : '—'], ['Потоки', p.thr],
+  ['Чтение', fmtRate(p.rbps)], ['Запись', fmtRate(p.wbps)], ['Подключений', p.conns],
+].map(([k, v]) => `<div class="stat"><small>${k}</small><b>${v}</b></div>`).join('');
+
+async function act(what, pid, name) {
+  const ask = { kill: 'Завершить', tree: 'Завершить вместе с дочерними', suspend: 'Приостановить', resume: 'Возобновить' }[what];
+  if (what === 'kill' || what === 'tree') {
+    if (!confirm(`${ask}: ${name || 'PID ' + pid}?\nНесохранённые данные в нём будут потеряны.`)) return;
+  }
+  const r = await api(`/api/action?do=${what}&pid=${pid}`, { method: 'POST' });
+  toast(r.ok ? 'Готово' : r.message);
+  if (r.ok && (what === 'kill' || what === 'tree')) closeDrawer();
+}
+
+function closeDrawer() { selected = null; $('#drawer').classList.remove('open'); if (last) renderTable(last); }
+$('#dClose').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+
+// ---------------------------------------------------------------- tabs
+let view = 'live';
+document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => {
+  view = b.dataset.view;
+  document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === b));
+  $('#liveView').hidden = view !== 'live';
+  $('#logView').hidden = view !== 'log';
+  $('#disksView').hidden = view !== 'disks';
+  if (view === 'log') loadLog();
+  else if (view === 'disks') initDisks();
+  else if (last) { renderKpis(last); renderTable(last); }
+}));
+
+// ---------------------------------------------------------------- journal
+const LOGM = {
+  cpu: { name: 'ЦП', color: '--cpu', fmt: (v) => pct(v), max: 100, procCol: 'cpuSum' },
+  mem: { name: 'Память', color: '--ram', fmt: (v) => pct(v), max: 100, procCol: 'rssPeak' },
+  gpu: { name: 'GPU', color: '--gpu', fmt: (v) => pct(v), max: 100, procCol: 'gpuPeak' },
+  disk: { name: 'Диск', color: '--disk', fmt: (v) => fmtRate(v), procCol: 'io' },
+  net: { name: 'Сеть', color: '--net', fmt: (v) => fmtRate(v), procCol: 'connsPeak' },
+};
+let logMin = 60, logMetric = 'cpu', logData = null, logSortKey = 'cpuSum', logSortDir = -1, logOpen = null, chartPts = [];
+
+const when = (t) => new Date(t).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const dur = (s) => (s < 90 ? Math.round(s) + ' с' : s < 5400 ? Math.round(s / 60) + ' мин' : (s / 3600).toFixed(1) + ' ч');
+
+const LCOLS = [
+  { k: 'name', t: 'Процесс', get: (p) => p.name.toLowerCase(), cell: (p) => esc(p.name) },
+  { k: 'exe', t: 'Путь', get: (p) => (p.exe || '').toLowerCase(), cell: (p) => `<span title="${esc(p.exe)}">${esc(p.exe || '—')}</span>`, cls: 'dim' },
+  { k: 'seconds', t: 'Время в журнале', get: (p) => p.seconds, cell: (p) => dur(p.seconds), num: 1 },
+  { k: 'cpuSum', t: 'ЦП ср / пик', get: (p) => p.cpuSum, cell: (p) => heat(p.cpuAvg, 50, '--cpu', `${pct(p.cpuAvg)} / ${pct(p.cpuPeak)}`), num: 1 },
+  { k: 'gpuPeak', t: 'GPU ср / пик', get: (p) => p.gpuPeak, cell: (p) => (p.gpuPeak ? heat(p.gpuAvg, 50, '--gpu', `${pct(p.gpuAvg)} / ${pct(p.gpuPeak)}`) : '—'), num: 1 },
+  { k: 'rssPeak', t: 'Память пик', get: (p) => p.rssPeak, cell: (p) => heat(p.rssPeak, 2e9, '--ram', fmtB(p.rssPeak)), num: 1 },
+  { k: 'readSum', t: 'Прочитано', get: (p) => p.readSum, cell: (p) => (p.readSum >= 1 ? heat(p.readSum, 5e9, '--disk', fmtB(p.readSum)) : '—'), num: 1 },
+  { k: 'writeSum', t: 'Записано', get: (p) => p.writeSum, cell: (p) => (p.writeSum >= 1 ? heat(p.writeSum, 5e9, '--disk', fmtB(p.writeSum)) : '—'), num: 1 },
+  { k: 'connsPeak', t: 'Подкл. пик', get: (p) => p.connsPeak, cell: (p) => p.connsPeak || '—', num: 1 },
+  { k: 'last', t: 'Последний раз', get: (p) => p.last, cell: (p) => when(p.last), cls: 'dim' },
+];
+$('#lhead').innerHTML = LCOLS.map((c) => `<th data-k="${c.k}" class="${c.num ? 'num' : ''}">${c.t}<span class="arr"></span></th>`).join('');
+$('#lhead').addEventListener('click', (e) => {
+  const th = e.target.closest('th'); if (!th) return;
+  logSortDir = logSortKey === th.dataset.k ? -logSortDir : (th.dataset.k === 'name' || th.dataset.k === 'exe' ? 1 : -1);
+  logSortKey = th.dataset.k; renderLogTable();
+});
+
+async function loadLog() {
+  const to = Date.now();
+  const d = await api(`/api/log?from=${to - logMin * 60000}&to=${to}`);
+  d.procs.forEach((p) => { p.io = p.readSum + p.writeSum; });
+  logData = d;
+  $('#logInfo').textContent = d.samples
+    ? `${d.samples} замеров · ${when(d.start)} — ${when(d.end)} · дней в журнале: ${d.days.length}`
+    : 'За этот период данных нет — журнал пишется, пока программа запущена';
+  drawLogChart();
+  renderSpikes();
+  renderLogTable();
+}
+
+function setLogSort() {
+  logSortKey = LOGM[logMetric].procCol; logSortDir = -1;
+}
+
+$('#range').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  logMin = +b.dataset.min;
+  document.querySelectorAll('#range button').forEach((x) => x.classList.toggle('on', x === b));
+  loadLog();
+});
+$('#metric').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  logMetric = b.dataset.m; setLogSort();
+  document.querySelectorAll('#metric button').forEach((x) => x.classList.toggle('on', x === b));
+  if (logData) { drawLogChart(); renderSpikes(); renderLogTable(); }
+});
+$('#logRefresh').addEventListener('click', loadLog);
+$('#logFolder').addEventListener('click', () => api('/api/openlogs'));
+$('#lq').addEventListener('input', renderLogTable);
+
+function drawLogChart() {
+  const cv = $('#logChart'), pts = logData?.points || [], M = LOGM[logMetric];
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  const L = 62, R = 8, T = 10, B = 22, pw = w - L - R, ph = h - T - B;
+  const val = (p) => p[logMetric];
+  const top = M.max || Math.max(1, ...pts.map(val)) * 1.15;
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  c.font = '11px Segoe UI'; c.fillStyle = css('--muted'); c.strokeStyle = css('--line'); c.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = T + ph - ph * i / 4;
+    c.beginPath(); c.moveTo(L, y); c.lineTo(w - R, y); c.stroke();
+    c.textAlign = 'right'; c.fillText(M.fmt(top * i / 4), L - 6, y + 4);
+  }
+  chartPts = [];
+  if (!pts.length) { c.textAlign = 'center'; c.fillText('Нет данных за выбранный период', w / 2, h / 2); return; }
+  const t0 = logData.start, t1 = Math.max(logData.end, t0 + 1);
+  const X = (t) => L + (t - t0) / (t1 - t0) * pw, Y = (v) => T + ph - Math.min(1, v / top) * ph;
+  c.textAlign = 'center';
+  for (let i = 0; i <= 5; i++) {
+    const t = t0 + (t1 - t0) * i / 5;
+    c.fillText(new Date(t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) + (t1 - t0 > 864e5 ? ' ' + new Date(t).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) : ''), L + pw * i / 5, h - 6);
+  }
+  const col = css(M.color);
+  c.beginPath(); pts.forEach((p, i) => (i ? c.lineTo(X(p.t), Y(val(p))) : c.moveTo(X(p.t), Y(val(p)))));
+  c.strokeStyle = col; c.lineWidth = 1.8; c.stroke();
+  c.lineTo(X(pts.at(-1).t), T + ph); c.lineTo(X(pts[0].t), T + ph); c.closePath();
+  c.globalAlpha = .15; c.fillStyle = col; c.fill(); c.globalAlpha = 1;
+  chartPts = pts.map((p) => ({ x: X(p.t), y: Y(val(p)), p }));
+}
+
+const chartBox = $('.chartbox');
+$('#logChart').addEventListener('mousemove', (e) => {
+  if (!chartPts.length) return;
+  const rect = e.currentTarget.getBoundingClientRect(), mx = e.clientX - rect.left;
+  let best = chartPts[0];
+  for (const q of chartPts) if (Math.abs(q.x - mx) < Math.abs(best.x - mx)) best = q;
+  const tip = $('#tip'), M = LOGM[logMetric], who = best.p.top?.[logMetric] || [];
+  tip.innerHTML = `<b>${when(best.p.t)}</b>${M.name}: ${M.fmt(best.p[logMetric])}`
+    + (who.length ? who.map((x) => `<i>${esc(x)}</i>`).join('') : '<i>процессов с заметной нагрузкой нет</i>');
+  tip.style.display = 'block';
+  const bw = chartBox.clientWidth;
+  tip.style.left = Math.min(bw - tip.offsetWidth - 6, Math.max(6, best.x + 20)) + 'px';
+  tip.style.top = Math.max(6, best.y - 10) + 'px';
+});
+$('#logChart').addEventListener('mouseleave', () => { $('#tip').style.display = 'none'; });
+
+function renderSpikes() {
+  const M = LOGM[logMetric], sp = logData?.spikes?.[logMetric] || [];
+  $('#spikeMetric').textContent = '· ' + M.name;
+  $('#spikes').innerHTML = sp.length ? sp.map((s) => `
+    <div class="spike"><b>${M.fmt(s.value)}</b> <span style="color:var(--muted)">${when(s.t)}</span>
+      <small>${s.who.length ? s.who.map(esc).join('<br>') : 'виновник не определён'}</small></div>`).join('')
+    : '<div style="color:var(--muted)">Нет данных</div>';
+}
+
+function renderLogTable() {
+  if (!logData) return;
+  const q = $('#lq').value.trim().toLowerCase();
+  let list = logData.procs.filter((p) => !q || `${p.name} ${p.exe} ${p.cmd} ${p.user}`.toLowerCase().includes(q));
+  const col = LCOLS.find((c) => c.k === logSortKey) || LCOLS[3];
+  list.sort((a, b) => (col.get(a) > col.get(b) ? 1 : col.get(a) < col.get(b) ? -1 : 0) * logSortDir);
+  $('#lshown').textContent = `${list.length} процессов`;
+  document.querySelectorAll('#lhead th').forEach((th) => {
+    th.classList.toggle('on', th.dataset.k === logSortKey);
+    $('.arr', th).textContent = th.dataset.k === logSortKey ? (logSortDir < 0 ? ' ▼' : ' ▲') : '';
+  });
+  $('#lbody').innerHTML = list.slice(0, 300).map((p) => `
+    <tr class="row ${p.key === logOpen ? 'sel' : ''}" data-key="${esc(p.key)}">${LCOLS.map((c) => `<td class="${c.cls || ''} ${c.num ? 'num' : ''}">${c.cell(p)}</td>`).join('')}</tr>
+    ${p.key === logOpen ? `<tr class="detail"><td colspan="${LCOLS.length}">
+      PID ${p.pid} · пользователь ${esc(p.user || '—')} · замеров ${p.samples} · с ${when(p.first)} по ${when(p.last)}
+      · пик диска ${fmtRate(p.ioPeak)} · средняя память ${fmtB(p.rssAvg)}
+      <span class="mono">${esc(p.exe || 'путь неизвестен')}</span>
+      <span class="mono">${esc(p.cmd || '')}</span>
+      <button class="btn" data-copy="${esc(p.exe)}">Копировать путь</button>
+      <button class="btn" data-reveal="${esc(p.exe)}">Показать в папке</button></td></tr>` : ''}`).join('');
+}
+
+$('#lbody').addEventListener('click', async (e) => {
+  const cp = e.target.closest('[data-copy]'), rv = e.target.closest('[data-reveal]');
+  if (cp) { navigator.clipboard.writeText(cp.dataset.copy); toast('Путь скопирован'); return; }
+  if (rv) {
+    const r = await api('/api/reveal?path=' + encodeURIComponent(rv.dataset.reveal));
+    if (!r.ok) toast(r.message); return;
+  }
+  const tr = e.target.closest('tr.row'); if (!tr) return;
+  logOpen = logOpen === tr.dataset.key ? null : tr.dataset.key; renderLogTable();
+});
+
+$('#logCsv').addEventListener('click', () => {
+  if (!logData) return;
+  const head = ['Процесс', 'Путь', 'Команда', 'Пользователь', 'PID', 'Замеров', 'Секунд', 'ЦП ср %', 'ЦП пик %', 'GPU ср %', 'GPU пик %', 'Память пик Б', 'Прочитано Б', 'Записано Б', 'Подкл. пик', 'Первый раз', 'Последний раз'];
+  const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const rows = logData.procs.map((p) => [p.name, p.exe, p.cmd, p.user, p.pid, p.samples, Math.round(p.seconds), p.cpuAvg.toFixed(1), p.cpuPeak, p.gpuAvg.toFixed(1), p.gpuPeak, p.rssPeak, Math.round(p.readSum), Math.round(p.writeSum), p.connsPeak, new Date(p.first).toISOString(), new Date(p.last).toISOString()].map(q).join(';'));
+  const blob = new Blob(['﻿' + [head.map(q).join(';'), ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `taskinsight-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`; a.click();
+});
+window.addEventListener('resize', () => { if (view === 'log' && logData) drawLogChart(); });
+
+// ---------------------------------------------------------------- disks
+let drive = null, diskData = null, diskOpen = null, diskBusy = false;
+
+function initDisks() {
+  const ds = (last?.disks || []).map((d) => d.mount.replace(/[\\/]+$/, '')).filter((m) => /^[A-Za-z]:$/.test(m));
+  if (!ds.length) { $('#driveSel').innerHTML = ''; $('#dInfo').textContent = 'Диски не найдены'; return; }
+  if (!drive || !ds.includes(drive)) drive = ds[0];
+  $('#driveSel').innerHTML = ds.map((m) => `<button data-d="${esc(m)}" class="${m === drive ? 'on' : ''}">${esc(m)}</button>`).join('');
+  loadDisk();
+}
+
+async function loadDisk() {
+  if (diskBusy || !drive) return;
+  diskBusy = true; diskOpen = null;
+  $('#dInfo').textContent = 'Сканирование…';
+  $('#dBodyTbl').innerHTML = '';
+  try {
+    diskData = await api('/api/diskfiles?drive=' + encodeURIComponent(drive));
+    const n = diskData.procs.length;
+    $('#dInfo').textContent = `Диск ${diskData.drive} · процессов: ${n} · открытых файлов: ${diskData.total}` + (diskData.slow ? ' · скан прерван по времени' : '');
+    renderDisk();
+  } catch { $('#dInfo').textContent = 'Ошибка сканирования'; }
+  diskBusy = false;
+}
+
+function renderDisk() {
+  if (!diskData) return;
+  const q = $('#dq').value.trim().toLowerCase(), only = $('#dOnlyFiles').checked;
+  const list = diskData.procs.filter((p) => (!only || p.files.length) &&
+    (!q || p.name.toLowerCase().includes(q) || String(p.pid) === q || p.files.some((f) => f.toLowerCase().includes(q))));
+  $('#dShown').textContent = `Показано ${list.length} из ${diskData.procs.length}`;
+  $('#dBodyTbl').innerHTML = list.map((p) => {
+    const fl = q ? p.files.filter((f) => f.toLowerCase().includes(q)) : p.files;
+    return `<tr class="row ${p.pid === diskOpen ? 'sel' : ''}" data-pid="${p.pid}">
+      <td class="name">${esc(p.name)}</td><td class="num dim">${p.pid}</td><td class="num">${p.files.length || '—'}</td>
+      <td class="dim"><span title="${esc(p.exe)}">${p.onExe ? esc(p.exe) : '—'}</span></td>
+      <td class="dim">${esc((p.user || '').split('\\').pop())}</td></tr>
+    ${p.pid === diskOpen ? `<tr class="detail"><td colspan="5">
+      ${fl.length ? fl.slice(0, 300).map((f) => `<span class="mono">${esc(f)}</span>`).join('') : 'Открытых файлов на этом диске нет — процесс только запущен с него'}
+      <button class="btn" data-dinfo="${p.pid}">Подробнее о процессе</button></td></tr>` : ''}`;
+  }).join('');
+}
+
+$('#driveSel').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b || diskBusy) return;
+  drive = b.dataset.d;
+  document.querySelectorAll('#driveSel button').forEach((x) => x.classList.toggle('on', x === b));
+  loadDisk();
+});
+$('#dRefresh').addEventListener('click', loadDisk);
+$('#dq').addEventListener('input', renderDisk);
+$('#dOnlyFiles').addEventListener('input', renderDisk);
+$('#dBodyTbl').addEventListener('click', (e) => {
+  const inf = e.target.closest('[data-dinfo]');
+  if (inf) { openDrawer(+inf.dataset.dinfo); return; }
+  const tr = e.target.closest('tr.row'); if (!tr) return;
+  const pid = +tr.dataset.pid;
+  diskOpen = diskOpen === pid ? null : pid; renderDisk();
+});
+
+// ---------------------------------------------------------------- loop
+async function tick() {
+  if (!paused) {
+    try {
+      const s = await api('/api/stats');
+      if (s.procs) {
+        last = s;
+        if (view === 'live') { renderKpis(s); renderTable(s); }
+        if (selected !== null) {
+          const p = s.procs.find((x) => x.pid === selected);
+          const box = $('#dStats');
+          if (p && box) box.innerHTML = statsHtml(p);
+        }
+      }
+    } catch { /* server restarting or window closing */ }
+  }
+  setTimeout(tick, 2000);
+}
+tick();
+</script>
+</body>
+</html>
